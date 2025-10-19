@@ -1,27 +1,15 @@
 package main
 
 import (
-	"context"
-	"html/template"
 	"log"
-	"net/http"
-	"time"
 
-	"github.com/ericmarcelinotju/congregator/command"
 	"github.com/ericmarcelinotju/congregator/config"
-
-	"github.com/ericmarcelinotju/congregator/plugins/cache"
-	"github.com/ericmarcelinotju/congregator/plugins/database"
-	"github.com/ericmarcelinotju/congregator/plugins/job"
-	"github.com/ericmarcelinotju/congregator/plugins/notifier"
-	"github.com/ericmarcelinotju/congregator/plugins/storage"
+	"github.com/gofiber/fiber/v2"
 
 	userModule "github.com/ericmarcelinotju/congregator/module/user"
-	websocketStore "github.com/ericmarcelinotju/congregator/plugins/websocket"
 
-	exampleScheduler "github.com/ericmarcelinotju/congregator/scheduler/example"
-
-	router "github.com/ericmarcelinotju/congregator/router"
+	"github.com/ericmarcelinotju/congregator/infra/database"
+	"github.com/ericmarcelinotju/congregator/infra/router"
 )
 
 // @securityDefinitions.apikey Auth
@@ -29,110 +17,19 @@ import (
 // @name Authorization
 func main() {
 	// get configuration stucts via .env file
-	configuration := config.NewConfig()
+	cfg := config.Get()
 
 	// establish DB connection
-	db, err := database.Connect(configuration.Database)
+	db, err := database.Connect(&cfg.Database.Main)
 	if err != nil {
 		log.Fatalln("[DATABASE] : ", err)
 	}
 
-	// establish cache connection
-	redisCache, err := cache.ConnectRedis(configuration.Cache)
-	if err != nil {
-		log.Fatalln("[REDIS] : ", err)
-	}
-
-	// establish job queue using redis
-	jobQueue, err := job.ConnectQueue(
-		&config.Queue{
-			Name:            "queue",
-			Number:          3,
-			PrefetchLimit:   3,
-			PollDuration:    time.Second * 3,
-			ReportBatchSize: 3,
-		},
-		redisCache.Client(),
-	)
-	if err != nil {
-		log.Fatalln("[BACKUP QUEUE] : ", err)
-	}
-
-	// initialize websocket dispatcher
-	dispatcher, err := websocketStore.NewDispatcher()
-	if err != nil {
-		log.Fatalln("[WEBSOCKET] : ", err)
-	}
-
-	var mediaStorage storage.Storage
-	if configuration.MediaStorage != nil {
-		// initialize File Manager
-		mediaStorage, err = storage.NewFileStorage(configuration.MediaStorage)
-		if err != nil {
-			log.Println("[FILE STORAGE] : ", err)
-		}
-	}
-
-	// initialize scheduler for backup worker
-	var scheduler *job.Scheduler
-
-	var forgotEmail *notifier.EmailNotifier
-
-	settingRepo := settingModule.NewRepository(db, redisCache)
-
-	authRepo := authModule.NewRepository(db, redisCache, forgotEmail)
-
-	userRepo := userModule.NewRepository(db, mediaStorage, dispatcher)
-	roleRepo := roleModule.NewRepository(db)
-	permissionRepo := permissionModule.NewRepository(db)
-
-	authSvc := authModule.NewService(authRepo, userRepo)
-
+	userRepo := userModule.NewRepository(&fiber.Client{})
 	userSvc := userModule.NewService(userRepo)
-	roleSvc := roleModule.NewService(roleRepo)
-	permissionSvc := permissionModule.NewService(permissionRepo)
 
-	settingSvc := settingModule.NewService(settingRepo, scheduler, forgotEmail)
-
-	// Setup smtp from setting
-	smtpConf, err := settingSvc.GetSMTPConfig(context.Background())
-	if err != nil {
-		log.Println("[NOREPLY EMAIL] : ", err)
-	}
-	if smtpConf != nil {
-		forgotEmail, err = notifier.NewEmailNotifier(
-			smtpConf,
-			template.Must(template.ParseFiles("./email/template/forgot.html")),
-		)
-		if err != nil {
-			log.Println("[FORGOT EMAIL] : ", err)
-		}
-	}
-
-	command.ProcessCommands(db)
-
-	exampleScheduler, err := exampleScheduler.NewScheduler(jobQueue)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	exampleScheduler.Start()
-
-	router := router.NewHTTPHandler(
-		authSvc,
-
-		userSvc,
-		roleSvc,
-		permissionSvc,
-
-		settingSvc,
-
-		// TODO :: fix this shit
-		jobQueue.Connection,
-		jobQueue,
+	router.NewRestServer(
+		cfg.Server.Rest,
 	)
-	log.Println("Start Listening to : " + configuration.Port)
-	err = http.ListenAndServe(":"+configuration.Port, router)
-	if err != nil {
-		log.Fatalln(err)
-	}
+
 }
