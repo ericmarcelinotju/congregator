@@ -1,8 +1,9 @@
-package project
+package note
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/go-playground/form/v4"
 	"github.com/gofiber/fiber/v2"
@@ -13,7 +14,7 @@ import (
 
 // Repository provides an abstraction on top of the user data source
 type Repository interface {
-	Get(context.Context, *dto.ProjectFilter) (*concern.PaginationResp[dto.ProjectDto], error)
+	Get(context.Context, *dto.NoteFilter) (*concern.PaginationResp[dto.NoteDto], error)
 }
 
 type repository struct {
@@ -30,25 +31,21 @@ func NewRepository(
 	}
 }
 
-func (s *repository) Get(ctx context.Context, filter *dto.ProjectFilter) (*concern.PaginationResp[dto.ProjectDto], error) {
-	urlValues, err := s.encoder.Encode(filter)
-	if err != nil {
-		return nil, err
-	}
-	agent := s.client.Get("/projects?" + urlValues.Encode())
+func (s *repository) Get(ctx context.Context, filter *dto.NoteFilter) (*concern.PaginationResp[dto.NoteDto], error) {
 
+	agent := s.client.Get(fmt.Sprintf("/projects/%d/merge_requests/%d/notes", filter.ProjectID, filter.MergeRequestID))
 	_, body, errs := agent.Bytes()
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}
 
-	var res []dto.ProjectDto
-	err = json.Unmarshal(body, &res)
+	var res []dto.NoteDto
+	err := json.Unmarshal(body, &res)
 	if err != nil {
 		return nil, err
 	}
 
-	return &concern.PaginationResp[dto.ProjectDto]{
+	return &concern.PaginationResp[dto.NoteDto]{
 		Data:  res,
 		Total: int64(len(res)),
 	}, nil

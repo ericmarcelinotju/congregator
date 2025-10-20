@@ -5,8 +5,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	"github.com/ericmarcelinotju/congregator/config"
+	"github.com/ericmarcelinotju/congregator/module/user"
 )
 
 // RestServer
@@ -25,7 +27,11 @@ func RestServer(cfg *config.Server) {
 	// healthGroup := router.Group("health")
 	// healthModule.NewRoutesFactory(healthGroup)()
 
+	userRepo := user.NewRepository(&fiber.Client{})
+	userSvc := user.NewService(userRepo)
+
 	// apiGroup := router.Group("api")
+
 	log.Println("Start Listening to : " + cfg.Port)
 	err := http.ListenAndServe(":"+cfg.Port, router)
 	if err != nil {
